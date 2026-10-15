@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # VaultDock installer: install / replace, upgrade, uninstall.
 #
-#   curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/VaultDock/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/VaultDock/main/install.sh | bash
 #   ./install.sh                 # interactive menu
 #   ./install.sh install|upgrade|uninstall|status [--yes]
 #
@@ -19,7 +19,7 @@
 set -Eeuo pipefail
 umask 027
 
-REPO="${VAULTDOCK_REPO:-YOUR_GITHUB_USER/VaultDock}"
+REPO="${VAULTDOCK_REPO:-ASPEC-RACING-PTY-LTD/VaultDock}"
 REF="${VAULTDOCK_REF:-main}"
 YES="${VAULTDOCK_YES:-0}"
 PROJECT="vaultdock"
@@ -117,7 +117,7 @@ fetch_source() { # fetch_source DEST
 		info "Using local source: $src"
 		(cd -- "$src" && tar --exclude=./.git --exclude=./data --exclude=./.dev-data --exclude='./desktop' --exclude='*/node_modules' --exclude=./backups -cf - .) | (cd -- "$dest" && tar -xf -)
 	else
-		[[ "$REPO" == YOUR_GITHUB_USER/* ]] && die "This installer has no repository configured yet. Set VAULTDOCK_REPO=owner/name or run it from a cloned repository."
+		[ -n "$REPO" ] || die "No repository configured. Set VAULTDOCK_REPO=owner/name or run it from a cloned repository."
 		local url="https://github.com/$REPO/archive/$REF.tar.gz" tmp
 		tmp=$(mktemp)
 		info "Downloading $url"

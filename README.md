@@ -12,7 +12,7 @@ Self-hosted file storage and intelligent synchronisation. Run it on your own har
 ## Install (Linux server with Docker)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/VaultDock/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/VaultDock/main/install.sh | bash
 ```
 
 The installer shows a menu: **1) Install / Replace, 2) Upgrade, 3) Uninstall**. It installs into `~/VaultDock` (or `/root/VaultDock` as root), asks where to store files (point it at your HDD), generates a setup token, builds and starts the container, and waits until it is healthy.
@@ -24,7 +24,7 @@ Then open the printed URL, create the administrator with the setup token, and in
 Piping a script from the internet into a shell runs it with your privileges before you have read it. To review it first:
 
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/YOUR_GITHUB_USER/VaultDock/main/install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/VaultDock/main/install.sh
 less install.sh
 bash install.sh
 ```

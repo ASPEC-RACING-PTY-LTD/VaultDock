@@ -29,8 +29,8 @@ import (
 )
 
 // UpdateRepo is the GitHub repository checked for new releases
-// ("owner/name"). Set at build time; the placeholder disables checks.
-var UpdateRepo = "YOUR_GITHUB_USER/VaultDock"
+// ("owner/name"). Override at build time; empty disables checks.
+var UpdateRepo = "ASPEC-RACING-PTY-LTD/VaultDock"
 
 // App is bound to the frontend.
 type App struct {
@@ -604,7 +604,7 @@ type UpdateInfo struct {
 // downloads or executes code on its own.
 func (a *App) CheckForUpdates() (*UpdateInfo, error) {
 	info := &UpdateInfo{Current: engine.Version}
-	if strings.Contains(UpdateRepo, "YOUR_GITHUB_USER") || UpdateRepo == "" {
+	if UpdateRepo == "" {
 		return info, nil
 	}
 	info.Configured = true
