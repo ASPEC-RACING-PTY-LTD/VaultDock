@@ -1,0 +1,11 @@
+.git
+.dev-data
+.claude
+desktop
+**/node_modules
+web/dist
+bin
+dist
+*.exe
+.env
+backups
