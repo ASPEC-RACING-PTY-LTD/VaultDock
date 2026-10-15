@@ -60,7 +60,7 @@ func main() {
 	app.toasts = newToasts(log)
 	eng.Notifier = app.toasts.Show
 
-	startHidden := slices.Contains(os.Args[1:], "--minimized") || (app.settings.StartMinimized && slices.Contains(os.Args[1:], "--autostart"))
+	startHidden := slices.Contains(os.Args[1:], "--minimized") || slices.Contains(os.Args[1:], "--updated") || (app.settings.StartMinimized && slices.Contains(os.Args[1:], "--autostart"))
 
 	tray := &trayController{app: app}
 	app.onSettings = func(s config.Settings) { tray.update() }

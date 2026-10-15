@@ -209,10 +209,12 @@ type Settings struct {
 	BandwidthKBps   int    `json:"bandwidth_kbps"`
 	Notifications   bool   `json:"notifications"`
 	Paused          bool   `json:"paused"`
+	// AutoUpdate installs new releases automatically when sync is idle.
+	AutoUpdate bool `json:"auto_update"`
 }
 
 func DefaultSettings() Settings {
-	return Settings{CloseToTray: true, ConcurrencyMode: "auto", ManualParallel: 4, MaxParallel: 32, Notifications: true, AutoStart: true}
+	return Settings{CloseToTray: true, ConcurrencyMode: "auto", ManualParallel: 4, MaxParallel: 32, Notifications: true, AutoStart: true, AutoUpdate: true}
 }
 
 // Normalize clamps values.

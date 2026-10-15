@@ -1,17 +1,45 @@
 import { useEffect, useState } from 'react'
-import { FileText, LogOut, RefreshCw } from 'lucide-react'
-import { CheckForUpdates, Disconnect, GetSettings, OpenLogsFolder, OpenURL, SaveSettings } from '../../wailsjs/go/main/App'
-import type { config, main } from '../../wailsjs/go/models'
+import { ArrowUpCircle, FileText, LogOut, RefreshCw } from 'lucide-react'
+import { CheckForUpdates, Disconnect, GetSettings, GetUpdateStatus, InstallUpdate, OpenLogsFolder, OpenURL, SaveSettings } from '../../wailsjs/go/main/App'
+import type { config, main, updater } from '../../wailsjs/go/models'
+import { EventsOn } from '../../wailsjs/runtime/runtime'
 import { Button, Field, PageLoader, Toggle, useUI } from '../ui'
-import { errMsg } from '../lib'
+import { errMsg, timeAgo } from '../lib'
+
+function UpdateLine({ u }: { u: updater.Status }) {
+  const checked = u.checked_at ? ` Checked ${timeAgo(u.checked_at)}.` : ''
+  switch (u.state) {
+    case 'disabled':
+      return <>Automatic updates are not available in this build.</>
+    case 'checking':
+      return <>Checking for updates…</>
+    case 'available':
+      return <>Version {u.latest} is available.{checked}</>
+    case 'downloading':
+      return <>Downloading version {u.latest}… {Math.round((u.progress || 0) * 100)}%</>
+    case 'ready':
+      return <>Version {u.latest} is downloaded and verified, ready to install.</>
+    case 'installing':
+      return <>Installing version {u.latest}. VaultDock restarts in a few seconds.</>
+    case 'error':
+      return <span className="text-red-600">{u.error}</span>
+    case 'up_to_date':
+      return <>You are running the latest version.{checked}</>
+    default:
+      return <>VaultDock checks for updates automatically.</>
+  }
+}
 
 export function SettingsScreen({ boot, onChanged }: { boot: main.Bootstrap; onChanged: () => void }) {
   const [s, setS] = useState<config.Settings | null>(null)
-  const [update, setUpdate] = useState<main.UpdateInfo | null>(null)
+  const [update, setUpdate] = useState<updater.Status | null>(null)
   const [checking, setChecking] = useState(false)
+  const [installing, setInstalling] = useState(false)
   const { toast, confirm } = useUI()
   useEffect(() => {
     GetSettings().then(setS)
+    GetUpdateStatus().then(setUpdate)
+    return EventsOn('update', (u: updater.Status) => setUpdate(u))
   }, [])
   if (!s) return <PageLoader />
   const save = async (patch: Partial<config.Settings>) => {
@@ -88,6 +116,60 @@ export function SettingsScreen({ boot, onChanged }: { boot: main.Bootstrap; onCh
         </div>
       </section>
 
+      <section className="card space-y-4 p-6">
+        <h2 className="font-semibold">Updates</h2>
+        <Toggle
+          checked={s.auto_update}
+          onChange={(v) => save({ auto_update: v })}
+          label="Install updates automatically"
+          description="New versions are downloaded from the official releases, verified against their published checksum, and installed while nothing is syncing. VaultDock restarts by itself and keeps all settings."
+        />
+        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-50 p-4 text-sm dark:bg-slate-900">
+          <ArrowUpCircle className="size-5 shrink-0 text-brand-600" />
+          <p className="min-w-0 flex-1">{update ? <UpdateLine u={update} /> : 'Checking…'}</p>
+          {update && ['available', 'ready'].includes(update.state) ? (
+            <Button
+              variant="primary"
+              loading={installing}
+              onClick={async () => {
+                setInstalling(true)
+                try {
+                  await InstallUpdate()
+                } catch (e) {
+                  toast('error', 'Update failed', errMsg(e))
+                  setInstalling(false)
+                }
+              }}
+            >
+              Install and restart
+            </Button>
+          ) : (
+            <Button
+              icon={<RefreshCw className="size-4" />}
+              loading={checking || update?.state === 'checking'}
+              disabled={update?.state === 'disabled' || update?.state === 'downloading' || update?.state === 'installing'}
+              onClick={async () => {
+                setChecking(true)
+                try {
+                  setUpdate(await CheckForUpdates())
+                } catch (e) {
+                  toast('error', 'Update check failed', errMsg(e))
+                } finally {
+                  setChecking(false)
+                }
+              }}
+            >
+              Check now
+            </Button>
+          )}
+        </div>
+        {update?.url && update.latest && update.state !== 'up_to_date' && (
+          <button className="text-sm font-medium text-brand-600 hover:underline" onClick={() => OpenURL(update.url!)}>
+            What's new in {update.latest}
+          </button>
+        )}
+      </section>
+
       <section className="card space-y-3 p-6">
         <h2 className="font-semibold">About</h2>
         <p className="text-sm text-slate-500">VaultDock desktop {boot.version}</p>
@@ -95,40 +177,7 @@ export function SettingsScreen({ boot, onChanged }: { boot: main.Bootstrap; onCh
           <Button icon={<FileText className="size-4" />} onClick={() => OpenLogsFolder()}>
             Open logs folder
           </Button>
-          <Button
-            icon={<RefreshCw className="size-4" />}
-            loading={checking}
-            onClick={async () => {
-              setChecking(true)
-              try {
-                setUpdate(await CheckForUpdates())
-              } catch (e) {
-                toast('error', 'Update check failed', errMsg(e))
-              } finally {
-                setChecking(false)
-              }
-            }}
-          >
-            Check for updates
-          </Button>
         </div>
-        {update && (
-          <p className="text-sm">
-            {!update.configured ? (
-              'Update checks are not configured in this build. Download new versions from your VaultDock project page.'
-            ) : update.available ? (
-              <>
-                Version {update.latest} is available.{' '}
-                <button className="font-medium text-brand-600 hover:underline" onClick={() => OpenURL(update.url)}>
-                  Open the release page
-                </button>{' '}
-                and run the new installer; your settings and sync folders are kept.
-              </>
-            ) : (
-              `You are running the latest version (${update.current}).`
-            )}
-          </p>
-        )}
       </section>
     </div>
   )

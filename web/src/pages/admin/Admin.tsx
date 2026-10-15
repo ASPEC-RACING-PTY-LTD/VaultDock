@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, AlertTriangle, CheckCircle2, Cpu, Database, HardDrive, KeyRound, Monitor, MoreHorizontal, Plus, RefreshCw, Settings, Shield, ShieldOff, Trash2, UserPlus, Users, XCircle } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowUpCircle, CheckCircle2, Cpu, Database, HardDrive, KeyRound, Monitor, MoreHorizontal, Plus, RefreshCw, Settings, Shield, ShieldOff, Trash2, UserPlus, Users, XCircle } from 'lucide-react'
 import { del, errorMessage, get, patch, post, put } from '../../lib/api'
 import { useUser } from '../../lib/auth'
 import { formatBytes, formatDate, formatDuration, timeAgo } from '../../lib/format'
 import { Badge, Button, cx, EmptyState, ErrorState, Field, IconButton, Menu, Modal, PageHeader, PageLoader, ProgressBar, Stat, Tabs, Toggle, useUI } from '../../components/ui'
 import { TransfersTable } from '../Sync'
 import { describe } from '../Activity'
+import { UpdateBanner, UpdatesTab } from './Updates'
 
 const tabs = [
   { to: '', label: 'Overview', icon: Activity },
@@ -17,6 +18,7 @@ const tabs = [
   { to: 'transfers', label: 'Transfers', icon: RefreshCw },
   { to: 'settings', label: 'Settings', icon: Settings },
   { to: 'health', label: 'System health', icon: Cpu },
+  { to: 'updates', label: 'Updates', icon: ArrowUpCircle },
   { to: 'audit', label: 'Audit log', icon: Shield },
 ]
 
@@ -46,6 +48,7 @@ function Overview() {
   const s = data.stats
   return (
     <div className="space-y-6">
+      <UpdateBanner />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Users" value={s.users} sub={`${s.active_users} active`} icon={<Users className="size-5" />} />
         <Stat label="Stored" value={formatBytes(s.logical_bytes)} sub={`${formatBytes(s.physical_bytes)} on disk after deduplication`} icon={<Database className="size-5" />} tone="sky" />
@@ -781,6 +784,7 @@ export default function AdminPage() {
         <Route path="transfers" element={<TransfersTab />} />
         <Route path="settings" element={<SettingsTab />} />
         <Route path="health" element={<HealthTab />} />
+        <Route path="updates" element={<UpdatesTab />} />
         <Route path="audit" element={<AuditTab />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>

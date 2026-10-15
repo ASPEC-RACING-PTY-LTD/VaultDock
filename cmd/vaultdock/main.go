@@ -132,6 +132,7 @@ func serve() error {
 		}
 	}
 
+	go srv.RunUpdateChecks(ctx)
 	go func() {
 		t := time.NewTicker(10 * time.Minute)
 		defer t.Stop()

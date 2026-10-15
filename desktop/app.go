@@ -8,12 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +22,7 @@ import (
 	"github.com/vaultdock/vaultdock/desktop/internal/engine"
 	"github.com/vaultdock/vaultdock/desktop/internal/platform"
 	"github.com/vaultdock/vaultdock/desktop/internal/state"
+	"github.com/vaultdock/vaultdock/desktop/internal/updater"
 	"github.com/vaultdock/vaultdock/pkg/client"
 	"github.com/vaultdock/vaultdock/pkg/protocol"
 )
@@ -48,6 +47,10 @@ type App struct {
 	quitting   bool
 	revoked    bool
 	onSettings func(config.Settings)
+
+	upd            *updater.Updater
+	installUpdate  bool   // launch the downloaded installer once shut down
+	notifiedUpdate string // last version announced in a notification
 }
 
 type enrollment struct {
@@ -109,6 +112,7 @@ func (a *App) startup(ctx context.Context) {
 		a.log.Error("engine start", "err", err)
 	}
 	go a.restoreConnection()
+	go a.runUpdates()
 	go func() {
 		t := time.NewTicker(time.Second)
 		defer t.Stop()
@@ -163,6 +167,7 @@ func (a *App) restoreConnection() {
 
 func (a *App) shutdown(ctx context.Context) {
 	a.eng.Stop()
+	a.launchPendingUpdate()
 }
 
 // --- bootstrap ---
@@ -591,67 +596,8 @@ func (a *App) Quit() {
 	wruntime.Quit(a.ctx)
 }
 
-type UpdateInfo struct {
-	Configured bool   `json:"configured"`
-	Current    string `json:"current"`
-	Latest     string `json:"latest"`
-	Available  bool   `json:"available"`
-	URL        string `json:"url"`
-}
-
-// CheckForUpdates queries the configured GitHub repository's latest release.
-// Updates are installed by the user running the new installer; the app never
-// downloads or executes code on its own.
-func (a *App) CheckForUpdates() (*UpdateInfo, error) {
-	info := &UpdateInfo{Current: engine.Version}
-	if UpdateRepo == "" {
-		return info, nil
-	}
-	info.Configured = true
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/"+UpdateRepo+"/releases/latest", nil)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, friendlyNetErr(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("release check failed (HTTP %d)", resp.StatusCode)
-	}
-	var rel struct {
-		TagName string `json:"tag_name"`
-		HTMLURL string `json:"html_url"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		return nil, err
-	}
-	info.Latest = strings.TrimPrefix(rel.TagName, "v")
-	info.URL = rel.HTMLURL
-	info.Available = newerVersion(info.Latest, strings.TrimPrefix(engine.Version, "v"))
-	return info, nil
-}
-
 func (a *App) OpenURL(u string) {
 	if strings.HasPrefix(u, "https://") {
 		wruntime.BrowserOpenURL(a.ctx, u)
 	}
-}
-
-func newerVersion(latest, current string) bool {
-	parse := func(v string) [3]int {
-		var out [3]int
-		for i, p := range strings.SplitN(strings.SplitN(v, "-", 2)[0], ".", 3) {
-			out[i], _ = strconv.Atoi(p)
-		}
-		return out
-	}
-	l, c := parse(latest), parse(current)
-	for i := 0; i < 3; i++ {
-		if l[i] != c[i] {
-			return l[i] > c[i]
-		}
-	}
-	return false
 }

@@ -2,17 +2,32 @@
 
 ## Upgrade
 
+The admin console shows when a new release is available (**Admin console → Updates**, and a banner on the overview). The server checks GitHub releases every 12 hours; set `VAULTDOCK_UPDATE_CHECK=false` to turn this off.
+
 ```bash
-~/VaultDock/app/install.sh upgrade      # or choose 2 in the menu
+~/VaultDock/app/install.sh upgrade             # or choose 2 in the menu
+~/VaultDock/app/install.sh upgrade --if-newer  # only if a newer release exists
 ```
 
 1. Backs up the database (online, consistent), `.env` and the application into `~/VaultDock/backups/upgrade-<timestamp>/`.
-2. Downloads (or copies) the new version, builds the image, restarts the container. Database migrations run automatically on start and are applied in a transaction each.
+2. Downloads the latest release (or `VAULTDOCK_REF`), pulls its prebuilt image from `ghcr.io` (building from source if the image is unavailable), and restarts the container. Database migrations run automatically on start and are applied in a transaction each.
 3. Waits for the health check. If the new version is not healthy, it restores the previous application, image and database backup and starts the old version again.
 
 User accounts, files, device authorisations, automations and settings are all in the database and storage directories, which upgrades never replace.
 
 A newer database can't be opened by an older VaultDock: the server refuses to start rather than risk damage. Restore the matching backup if you need to downgrade.
+
+## Automatic updates
+
+```bash
+~/VaultDock/app/install.sh auto-update on      # daily at 04:00
+~/VaultDock/app/install.sh auto-update status  # schedule, installed version, last log lines
+~/VaultDock/app/install.sh auto-update off
+```
+
+This adds a cron entry for the installing user that runs `upgrade --if-newer` every night, with the same backup and automatic rollback as a manual upgrade. Output goes to `~/VaultDock/logs/auto-update.log`. Only one upgrade runs at a time. The admin console shows whether automatic updates are on. Uninstalling removes the cron entry.
+
+Windows desktop apps update themselves; see [Desktop app](desktop.md#updates).
 
 ## Uninstall
 

@@ -16,6 +16,7 @@ export namespace config {
 	    bandwidth_kbps: number;
 	    notifications: boolean;
 	    paused: boolean;
+	    auto_update: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -38,6 +39,7 @@ export namespace config {
 	        this.bandwidth_kbps = source["bandwidth_kbps"];
 	        this.notifications = source["notifications"];
 	        this.paused = source["paused"];
+	        this.auto_update = source["auto_update"];
 	    }
 	}
 	export class SyncConfig {
@@ -465,26 +467,6 @@ export namespace main {
 	        this.url = source["url"];
 	    }
 	}
-	export class UpdateInfo {
-	    configured: boolean;
-	    current: string;
-	    latest: string;
-	    available: boolean;
-	    url: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new UpdateInfo(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.configured = source["configured"];
-	        this.current = source["current"];
-	        this.latest = source["latest"];
-	        this.available = source["available"];
-	        this.url = source["url"];
-	    }
-	}
 
 }
 
@@ -558,6 +540,37 @@ export namespace state {
 	        this.error = source["error"];
 	        this.manual = source["manual"];
 	        this.created_at = source["created_at"];
+	    }
+	}
+
+}
+
+export namespace updater {
+	
+	export class Status {
+	    state: string;
+	    current: string;
+	    latest?: string;
+	    url?: string;
+	    notes?: string;
+	    progress: number;
+	    error?: string;
+	    checked_at?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.current = source["current"];
+	        this.latest = source["latest"];
+	        this.url = source["url"];
+	        this.notes = source["notes"];
+	        this.progress = source["progress"];
+	        this.error = source["error"];
+	        this.checked_at = source["checked_at"];
 	    }
 	}
 

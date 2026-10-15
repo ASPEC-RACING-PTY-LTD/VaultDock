@@ -15,7 +15,7 @@ Self-hosted file storage and intelligent synchronisation. Run it on your own har
 curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/VaultDock/main/install.sh | bash
 ```
 
-The installer shows a menu: **1) Install / Replace, 2) Upgrade, 3) Uninstall**. It installs into `~/VaultDock` (or `/root/VaultDock` as root), asks where to store files (point it at your HDD), generates a setup token, builds and starts the container, and waits until it is healthy.
+The installer shows a menu: **1) Install / Replace, 2) Upgrade, 3) Uninstall, 4) Automatic updates**. It installs the latest release into `~/VaultDock` (or `/root/VaultDock` as root), asks where to store files (point it at your HDD), generates a setup token, pulls the prebuilt image (or builds it from source), starts the container, and waits until it is healthy.
 
 Then open the printed URL, create the administrator with the setup token, and install the desktop app.
 
@@ -49,6 +49,12 @@ Build the installer (see [docs/desktop.md](docs/desktop.md)) or download `VaultD
 3. Add sync folders (presets for Medal clips, screenshots and documents), preview what will upload, and you're done.
 
 The password is used once to request access and is never stored. Revoking a device in the web interface stops it immediately.
+
+## Updates
+
+- **Desktop app**: updates itself from GitHub releases. Installers are verified against their published SHA-256 checksum and installed while nothing is syncing.
+- **Server**: the admin console shows new releases. Upgrade with `~/VaultDock/app/install.sh upgrade`, or turn on nightly updates with `~/VaultDock/app/install.sh auto-update on`. Every upgrade backs up first and rolls back automatically if the new version is unhealthy.
+- **Releases**: push a `vX.Y.Z` tag and the Release workflow publishes the Windows installer, `SHA256SUMS` and the multi-architecture server image.
 
 ## Documentation
 

@@ -34,6 +34,14 @@ export function GetSnapshot() {
   return window['go']['main']['App']['GetSnapshot']();
 }
 
+export function GetUpdateStatus() {
+  return window['go']['main']['App']['GetUpdateStatus']();
+}
+
+export function InstallUpdate() {
+  return window['go']['main']['App']['InstallUpdate']();
+}
+
 export function ListAutomations() {
   return window['go']['main']['App']['ListAutomations']();
 }

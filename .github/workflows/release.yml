@@ -1,0 +1,167 @@
+name: Release
+
+# Push a tag such as v1.2.0 to publish a release. Desktop apps, the
+# vaultdock.dev download page and `install.sh upgrade` all pick it up from here.
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)build, for example v1.2.0
+        required: true
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  # The server image and the Windows app build in parallel.
+  server-image:
+    name: Server image (amd64 + arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - name: Version
+        id: v
+        run: |
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ steps.v.outputs.image }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ env.TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}
+            type=raw,value=latest,enable=${{ !contains(env.TAG, '-') }}
+      # Build stages cross-compile natively (see Dockerfile), so arm64 needs no emulation.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ steps.v.outputs.version }}
+          cache-from: type=gha,scope=server-image
+          cache-to: type=gha,scope=server-image,mode=max
+          provenance: false
+
+  desktop:
+    name: Windows app
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      WAILS_VERSION: v2.16.0
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - name: Version
+        id: v
+        shell: bash
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: |
+            go.sum
+            desktop/go.sum
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/frontend/package-lock.json
+      - name: Cache Wails CLI
+        id: wails-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/wails.exe
+          key: wails-${{ runner.os }}-${{ env.WAILS_VERSION }}
+      - name: Install Wails CLI
+        if: steps.wails-cache.outputs.cache-hit != 'true'
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+      - name: Ensure NSIS
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            $nsis = 'C:\Program Files (x86)\NSIS'
+            if (-not (Test-Path "$nsis\makensis.exe")) { choco install nsis -y --no-progress }
+            Add-Content $env:GITHUB_PATH $nsis
+          }
+      - name: Set version
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          $cfg = Get-Content wails.json -Raw | ConvertFrom-Json
+          $cfg.info.productVersion = '${{ steps.v.outputs.version }}'.Split('-')[0]
+          $cfg | ConvertTo-Json -Depth 10 | Set-Content wails.json -Encoding utf8NoBOM
+      - name: Frontend
+        working-directory: desktop/frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Build installer
+        working-directory: desktop
+        run: wails build -s -skipbindings -clean -nsis -trimpath -ldflags "-s -w -X main.version=${{ steps.v.outputs.version }}"
+      - name: Collect installer
+        shell: bash
+        run: |
+          mkdir -p out
+          src=$(find desktop/build/bin -maxdepth 1 -name "*-amd64-setup.exe" -print -quit)
+          [ -n "$src" ] || { echo "installer not found" >&2; exit 1; }
+          cp "$src" "out/VaultDock-${{ steps.v.outputs.version }}-amd64-setup.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop
+          path: out/*.exe
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  publish:
+    name: Publish release
+    needs: [server-image, desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop
+          path: assets
+      - name: Checksums
+        working-directory: assets
+        run: sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          flags=()
+          [[ "$TAG" == *-* ]] && flags+=(--prerelease)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --clobber
+          else
+            gh release create "$TAG" assets/* --verify-tag --generate-notes --title "VaultDock ${TAG#v}" "${flags[@]}"
+          fi

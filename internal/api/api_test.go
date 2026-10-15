@@ -807,3 +807,37 @@ func TestLowDiskSpaceRefusesUploads(t *testing.T) {
 	os.MkdirAll(filepath.Join(e.storage, "hdd2"), 0o755)
 	admin.must("POST", "/api/v1/admin/storage", map[string]any{"name": "HDD 2", "path": filepath.Join(e.storage, "hdd2")}, 201)
 }
+
+func TestAdminUpdateStatus(t *testing.T) {
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/ASPEC-RACING-PTY-LTD/VaultDock/releases/latest" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`{"tag_name":"v9.1.0","html_url":"https://github.com/ASPEC-RACING-PTY-LTD/VaultDock/releases/tag/v9.1.0","body":"Faster sync.","published_at":"2026-10-01T00:00:00Z","assets":[]}`))
+	}))
+	defer gh.Close()
+	prev := api.Version
+	api.Version = "9.0.2"
+	defer func() { api.Version = prev }()
+
+	e := newEnv(t, "")
+	e.srv.SetUpdateAPIBase(gh.URL)
+	admin := e.setupAdmin()
+
+	out := admin.must("GET", "/api/v1/admin/update", nil, 200)
+	if out["available"] != false || out["enabled"] != true || out["auto_update"] != "off" {
+		t.Fatalf("before check: %v", out)
+	}
+	out = admin.must("POST", "/api/v1/admin/update/check", nil, 200)
+	if out["latest"] != "9.1.0" || out["available"] != true || out["notes"] != "Faster sync." || out["checked_at"] == nil {
+		t.Fatalf("after check: %v", out)
+	}
+	if got := admin.must("GET", "/api/v1/admin/update", nil, 200); got["latest"] != "9.1.0" {
+		t.Fatalf("status not kept: %v", got)
+	}
+	user := e.createUser(admin, "bob", 0)
+	if code, _ := user.req("GET", "/api/v1/admin/update", nil); code != 403 {
+		t.Fatalf("non-admin got %d", code)
+	}
+}

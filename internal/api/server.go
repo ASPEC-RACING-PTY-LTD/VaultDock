@@ -49,11 +49,14 @@ type Server struct {
 
 	touchMu   sync.Mutex
 	lastTouch map[string]time.Time
+
+	updates *updateChecker
 }
 
 func New(cfg *config.Config, st *store.Store, blobs *storage.Manager, settings *SettingsCache, geo *Geo) *Server {
 	return &Server{
 		cfg: cfg, st: st, blobs: blobs, settings: settings, geo: geo, started: time.Now(),
+		updates:       newUpdateChecker(cfg.UpdateRepo, cfg.UpdateCheck, cfg.AutoUpdate),
 		loginLimiter:  auth.NewLimiter(20, 10),
 		enrollLimiter: auth.NewLimiter(10, 5),
 		apiLimiter:    auth.NewLimiter(6000, 1200),
@@ -632,6 +635,8 @@ func (s *Server) Handler(web http.Handler) http.Handler {
 					r.Get("/settings", s.handleAdminSettings)
 					r.Put("/settings", s.handleAdminSaveSettings)
 					r.Get("/health", s.handleAdminHealth)
+					r.Get("/update", s.handleAdminUpdate)
+					r.Post("/update/check", s.handleAdminUpdateCheck)
 					r.Get("/audit", s.handleAdminAudit)
 					r.Post("/maintenance/cleanup", s.handleAdminCleanup)
 				})

@@ -38,7 +38,26 @@ Uninstalling asks whether to remove these; your own files and everything on the 
 
 ## Updates
 
-**Settings → Check for updates** queries the latest GitHub release of `ASPEC-RACING-PTY-LTD/VaultDock` (override at build time with `-X main.UpdateRepo=owner/name`; an empty value disables the check). When a newer version exists the app opens the release page; running the new installer upgrades in place and keeps settings, the device key and sync state. The app never downloads or runs code on its own.
+The app keeps itself up to date from the GitHub releases of `ASPEC-RACING-PTY-LTD/VaultDock` (override at build time with `-X main.UpdateRepo=owner/name`; an empty value disables updates).
+
+- It checks two minutes after start and then every six hours. **Settings → Updates → Check now** checks immediately.
+- A newer installer is downloaded only over HTTPS from `github.com` (redirects are limited to GitHub's asset hosts), into `%LOCALAPPDATA%\VaultDock\updates`.
+- The download is verified against the SHA-256 digest GitHub publishes for the asset, or the release's `SHA256SUMS` file. A release without a checksum is never installed. The file is hashed again immediately before it runs.
+- With **Install updates automatically** on (the default), the update is installed once nothing is uploading. Otherwise Settings shows **Install and restart**.
+- Installing stops the sync engine cleanly, then runs the installer silently (`/S /RELAUNCH /D=<current folder>`). It replaces the app in place and starts it again in the notification area. Settings, the device key and sync state are kept.
+
+Development builds (version `dev`) never update themselves.
+
+## Publishing a release
+
+Push a version tag. The **Release** workflow builds the Windows installer and the multi-architecture server image in parallel, then publishes the GitHub release with `SHA256SUMS`:
+
+```bash
+ch tag v1.2.0
+ch push origin v1.2.0
+```
+
+Desktop apps, `install.sh upgrade` and the download page on vaultdock.dev all use the latest release, so nothing else needs updating. Make the `ghcr.io/aspec-racing-pty-ltd/vaultdock` package public once so servers can pull the image; if it is not reachable, the installer builds from source instead.
 
 ## Connecting to different servers
 

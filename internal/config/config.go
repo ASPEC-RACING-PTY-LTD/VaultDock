@@ -46,6 +46,12 @@ type Config struct {
 	UploadSessionTTL time.Duration
 	// DevMode relaxes cookie security for local http development.
 	DevMode bool
+	// UpdateCheck enables periodic checks for new releases of UpdateRepo
+	// ("owner/name" on GitHub). The result is shown in the admin console.
+	UpdateCheck bool
+	UpdateRepo  string
+	// AutoUpdate mirrors the installer's scheduled updates ("on"/"off").
+	AutoUpdate string
 }
 
 func env(key, def string) string {
@@ -94,6 +100,9 @@ func Load() (*Config, error) {
 		LogLevel:       env("VAULTDOCK_LOG_LEVEL", "info"),
 		LogFormat:      env("VAULTDOCK_LOG_FORMAT", "json"),
 		DevMode:        envBool("VAULTDOCK_DEV", false),
+		UpdateCheck:    envBool("VAULTDOCK_UPDATE_CHECK", true),
+		UpdateRepo:     env("VAULTDOCK_UPDATE_REPO", "ASPEC-RACING-PTY-LTD/VaultDock"),
+		AutoUpdate:     strings.ToLower(env("VAULTDOCK_AUTO_UPDATE", "off")),
 	}
 	for _, r := range strings.Split(env("VAULTDOCK_STORAGE_ROOTS", "/storage"), ",") {
 		r = strings.TrimSpace(r)

@@ -24,6 +24,7 @@ ManifestDPIAware true
 
 !include "MUI.nsh"
 !include "LogicLib.nsh"
+!include "FileFunc.nsh"
 
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
@@ -59,8 +60,25 @@ ShowInstDetails show
     Sleep 800
 !macroend
 
+# Automatic updates run this installer as: setup.exe /S /RELAUNCH /D=<dir>
+# It then installs silently into the existing folder and starts the app again.
+Var Relaunch
+
 Function .onInit
    !insertmacro wails.checkArchitecture
+   StrCpy $Relaunch "0"
+   ${GetParameters} $R0
+   ClearErrors
+   ${GetOptions} $R0 "/RELAUNCH" $R1
+   ${IfNot} ${Errors}
+       StrCpy $Relaunch "1"
+   ${EndIf}
+FunctionEnd
+
+Function .onInstSuccess
+   ${If} $Relaunch == "1"
+       Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}" --updated'
+   ${EndIf}
 FunctionEnd
 
 Section
@@ -72,7 +90,10 @@ Section
     !insertmacro wails.files
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
-    CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    # Updates keep the user's choice: a removed desktop shortcut is not recreated.
+    ${If} $Relaunch != "1"
+        CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    ${EndIf}
 
     !insertmacro wails.writeUninstaller
 SectionEnd
