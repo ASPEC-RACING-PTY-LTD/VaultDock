@@ -1,6 +1,6 @@
 # Deployment
 
-VaultDock runs as a single container (`vaultdock`) built from the root `Dockerfile`. `install.sh` sets everything up; this page explains what it configures so you can adapt it.
+VaultDock runs as a single container (`vaultdock`). `install.sh` installs only what the server needs to run: the release's prebuilt image (or an image built from a temporary copy of the source, which is deleted afterwards) and a small `app/` folder. This page explains what it configures so you can adapt it.
 
 ## Requirements
 
@@ -14,11 +14,14 @@ Development and testing work on Windows with Docker Desktop.
 
 | Host path (default) | Container | Contents |
 |---|---|---|
-| `~/VaultDock/.env` | (env file) | Configuration, setup token. Mode 600. |
+| `~/VaultDock/app/.env` | (env file) | Complete configuration with every option, including the generated setup token. Mode 600. |
+| `~/VaultDock/app/docker-compose.yml` | | Service definition (plus your optional `docker-compose.override.yml`) |
+| `~/VaultDock/app/install.sh` | | Upgrade, automatic updates, status and uninstall |
 | `~/VaultDock/data/state` | `/state` | SQLite database, self-signed TLS material, Caddy certificates |
 | storage path you choose | `/storage/default` | Content-addressed file blobs and in-progress uploads |
 | `~/VaultDock/backups` | | Database, `.env` and app backups made by upgrades |
-| `~/VaultDock/app` | | Application source used to build the image |
+
+VaultDock publishes on port **3000** of the host by default (`VAULTDOCK_PORT`); inside the container it listens on 8080.
 
 User files are **never** stored in the container layer: the container root filesystem is read-only, and all data lives in bind mounts.
 
@@ -58,11 +61,11 @@ Each location has a *reserve* (keep-free amount) and the platform has a global m
 The desktop app requires HTTPS for anything other than `localhost`. Pick one:
 
 1. **Built-in Caddy** (automatic Let's Encrypt): set `COMPOSE_PROFILES=caddy` and `VAULTDOCK_DOMAIN=vault.example.com` in `.env`. Ports 80 and 443 must reach the host. VaultDock itself then binds to 127.0.0.1.
-2. **Your own reverse proxy** (nginx, Traefik, Caddy, Cloudflare Tunnel): forward to port 8080, pass `X-Forwarded-For` and `X-Forwarded-Proto`, allow request bodies of at least 64 MB and disable proxy buffering for uploads. Set `VAULTDOCK_TRUSTED_PROXIES` to the proxy's address so client IPs and HTTPS detection are correct. Example nginx:
+2. **Cloudflare Tunnel or your own reverse proxy** (installer option 1): VaultDock listens on `127.0.0.1:3000` only and trusts forwarded headers from the host and Docker networks. Point a Cloudflare Tunnel public hostname (for example `app.example.com`) at `http://127.0.0.1:3000`. For nginx, Traefik or Caddy, forward to the same address, pass `X-Forwarded-For` and `X-Forwarded-Proto`, allow request bodies of at least 64 MB and disable proxy buffering for uploads. Set `VAULTDOCK_TRUSTED_PROXIES` to the proxy's address so client IPs and HTTPS detection are correct. Example nginx:
 
    ```nginx
    location / {
-       proxy_pass http://127.0.0.1:8080;
+       proxy_pass http://127.0.0.1:3000;
        proxy_set_header Host $host;
        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
        proxy_set_header X-Forwarded-Proto $scheme;

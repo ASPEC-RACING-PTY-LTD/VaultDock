@@ -15,8 +15,13 @@
 #   VAULTDOCK_SOURCE   use this local source directory instead of downloading
 #   VAULTDOCK_IMAGE    pull this prebuilt image instead of building locally
 #                      (releases use ghcr.io/<repo>:<version> automatically)
+#   VAULTDOCK_HTTPS    tunnel | caddy | selfsigned | none (skips the question)
+#   VAULTDOCK_PORT, VAULTDOCK_PUBLIC_URL, VAULTDOCK_STORAGE   answers for unattended installs
 #   VAULTDOCK_REBUILD=0  reuse an existing local vaultdock:local image
 #   VAULTDOCK_YES=1    accept defaults for every prompt (non-interactive)
+#
+# Only the runtime files are installed (app/: docker-compose.yml, Caddyfile,
+# install.sh and .env); the server itself runs from a container image.
 #
 # The script never deletes user files, databases or configuration without an
 # explicit, typed confirmation.
@@ -31,7 +36,7 @@ YES="${VAULTDOCK_YES:-0}"
 PROJECT="vaultdock"
 
 # --- output helpers ----------------------------------------------------------
-if [ -t 1 ]; then B=$'\e[1m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; C=$'\e[36m'; N=$'\e[0m'; else B= G= Y= R= C= N=; fi
+if [ -t 1 ]; then B=$'\e[1m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; C=$'\e[36m'; N=$'\e[0m'; else B='' G='' Y='' R='' C='' N=''; fi
 info()  { printf '%s\n' "${C}==>${N} $*"; }
 ok()    { printf '%s\n' "${G}✔${N} $*"; }
 warn()  { printf '%s\n' "${Y}!${N} $*" >&2; }
@@ -80,11 +85,19 @@ default_dir() {
 
 DIR=$(default_dir)
 APP="$DIR/app"
-ENV_FILE="$DIR/.env"
+ENV_FILE="$APP/.env"
+LEGACY_ENV="$DIR/.env" # where earlier installers kept the configuration
 BACKUPS="$DIR/backups"
+DEFAULT_PORT=3000
+# Files that make up an installation; everything else is in the container image.
+RUNTIME_FILES="docker-compose.yml deploy/Caddyfile install.sh"
+# User files in app/ that upgrades carry over.
+KEEP_FILES=".env docker-compose.override.yml"
 
 compose() {
-	docker compose -p "$PROJECT" -f "$APP/docker-compose.yml" --env-file "$ENV_FILE" "$@"
+	local files=(-f "$APP/docker-compose.yml")
+	[ -f "$APP/docker-compose.override.yml" ] && files+=(-f "$APP/docker-compose.override.yml")
+	docker compose -p "$PROJECT" --project-directory "$APP" "${files[@]}" --env-file "$ENV_FILE" "$@"
 }
 
 env_get() { # env_get KEY
@@ -142,32 +155,79 @@ resolve_ref() {
 
 installed() { [ -f "$ENV_FILE" ] && [ -f "$APP/docker-compose.yml" ]; }
 
+resolve_ref_if_remote() { [ -n "$(local_source)" ] || resolve_ref; }
+
+# migrate_layout moves the configuration of older installations from
+# ~/VaultDock/.env into ~/VaultDock/app/.env, next to docker-compose.yml.
+migrate_layout() {
+	if [ -f "$LEGACY_ENV" ] && [ ! -f "$ENV_FILE" ] && [ -f "$APP/docker-compose.yml" ]; then
+		mv -- "$LEGACY_ENV" "$ENV_FILE"
+		set_env VAULTDOCK_ENV_FILE "$ENV_FILE"
+		info "Moved the configuration to $ENV_FILE"
+	fi
+}
+
 random_token() {
 	if command -v openssl >/dev/null 2>&1; then openssl rand -hex 24
 	else head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n'; fi
 }
 
 # --- source --------------------------------------------------------------------
-fetch_source() { # fetch_source DEST
-	local dest=$1 src
+download() { # download URL DEST
+	if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 -o "$2" "$1"; else wget -qO "$2" "$1"; fi
+}
+
+# fetch_app DEST stages a complete app/ directory: the runtime files for the
+# selected version plus the user's .env and compose override, if any.
+fetch_app() {
+	local dest=$1 src f
 	src=$(local_source)
 	rm -rf -- "$dest"
-	mkdir -p -- "$dest"
+	mkdir -p -- "$dest/deploy"
 	if [ -n "$src" ]; then
 		is_repo "$src" || die "$src does not look like a VaultDock source directory."
 		info "Using local source: $src"
-		(cd -- "$src" && tar --exclude=./.git --exclude=./data --exclude=./.dev-data --exclude='./desktop' --exclude='*/node_modules' --exclude=./backups -cf - .) | (cd -- "$dest" && tar -xf -)
+		for f in $RUNTIME_FILES; do cp -- "$src/$f" "$dest/$f"; done
 	else
 		[ -n "$REPO" ] || die "No repository configured. Set VAULTDOCK_REPO=owner/name or run it from a cloned repository."
 		[ -n "$REF" ] || resolve_ref
-		local url="https://github.com/$REPO/archive/$REF.tar.gz" tmp
-		tmp=$(mktemp)
-		info "Downloading $url"
-		if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 -o "$tmp" "$url"; else wget -qO "$tmp" "$url"; fi
-		tar -xzf "$tmp" -C "$dest" --strip-components=1
-		rm -f -- "$tmp"
+		info "Downloading VaultDock ${RELEASE_VERSION:-$REF}"
+		for f in $RUNTIME_FILES; do
+			download "https://raw.githubusercontent.com/$REPO/$REF/$f" "$dest/$f" || die "Could not download $f for $REF."
+		done
 	fi
-	is_repo "$dest" || die "Downloaded source is incomplete."
+	chmod 755 -- "$dest/install.sh"
+	for f in $KEEP_FILES; do
+		if [ -f "$APP/$f" ]; then cp -p -- "$APP/$f" "$dest/$f"; fi
+	done
+	[ -f "$dest/docker-compose.yml" ] && [ -s "$dest/install.sh" ] || die "Downloaded files are incomplete."
+}
+
+# with_build_source CMD... runs CMD with a source tree as its last argument.
+# A downloaded source lives in a temporary directory that is always removed.
+with_build_source() {
+	local src tmp rc=0
+	src=$(local_source)
+	if [ -n "$src" ]; then
+		"$@" "$src"
+		return
+	fi
+	[ -n "$REF" ] || resolve_ref
+	tmp=$(mktemp -d)
+	info "Downloading the source for $REF to build the image"
+	if download "https://github.com/$REPO/archive/$REF.tar.gz" "$tmp/src.tar.gz" &&
+		mkdir -p "$tmp/src" && tar -xzf "$tmp/src.tar.gz" -C "$tmp/src" --strip-components=1 && is_repo "$tmp/src"; then
+		"$@" "$tmp/src" || rc=$?
+	else
+		rc=1
+		warn "Could not download the source for $REF."
+	fi
+	rm -rf -- "$tmp"
+	return "$rc"
+}
+
+docker_build() { # docker_build VERSION SRC
+	DOCKER_BUILDKIT=1 docker build -t vaultdock:local --build-arg "VERSION=$1" "$2"
 }
 
 # build_image: a registry image (VAULTDOCK_IMAGE) is reused or pulled, falling
@@ -202,12 +262,13 @@ build_image() {
 		return
 	fi
 	info "Building the VaultDock image (first build downloads base images and can take a few minutes)"
-	local ver=$RELEASE_VERSION
-	[ -n "$ver" ] || ver=$(git -C "$(local_source)" describe --tags --always 2>/dev/null || true)
+	local ver=$RELEASE_VERSION src
+	src=$(local_source)
+	if [ -z "$ver" ] && [ -n "$src" ]; then ver=$(git -C "$src" describe --tags --always 2>/dev/null || true); fi
 	[ -n "$ver" ] || ver="$REF-$(date +%Y%m%d%H%M)"
+	with_build_source docker_build "${ver#v}" || return 1
 	set_env VAULTDOCK_VERSION "${ver#v}"
 	set_env VAULTDOCK_IMAGE "vaultdock:local"
-	compose build vaultdock
 }
 
 set_env() { # set_env KEY VALUE  (update or append in .env)
@@ -236,7 +297,7 @@ prepare_dirs() {
 
 wait_healthy() {
 	local port bind url i
-	port=$(env_get VAULTDOCK_PORT); port=${port:-8080}
+	port=$(env_get VAULTDOCK_PORT); port=${port:-$DEFAULT_PORT}
 	url="http://127.0.0.1:$port/readyz"
 	if [ "$(env_get VAULTDOCK_TLS_SELF_SIGNED)" = true ]; then url="https://127.0.0.1:$port/readyz"; fi
 	info "Waiting for VaultDock to become ready"
@@ -251,52 +312,120 @@ wait_healthy() {
 }
 
 # --- install -------------------------------------------------------------------
+https_mode_default() {
+	case "${VAULTDOCK_HTTPS:-}" in
+	tunnel|proxy) echo 1 ;; caddy) echo 2 ;; selfsigned) echo 3 ;; none) echo 4 ;;
+	*) if [ "$YES" = 1 ] || ! have_tty; then echo 4; else echo 1; fi ;;
+	esac
+}
+
 write_env() {
-	local storage port url mode domain token uid gid
+	local storage port url mode domain="" token uid gid host bind=0.0.0.0 proxies="" secure=auto
+	local profiles="" tls_self=false tls_hosts=""
 	info "Configuration"
 	printf '  Installation directory: %s\n' "$DIR"
-	ask storage "Where should VaultDock store files? (use a path on your HDD or mounted volume)" "$DIR/data/storage"
+	ask storage "Where should VaultDock store files? (use a path on your HDD or mounted volume)" "${VAULTDOCK_STORAGE:-$DIR/data/storage}"
 	case "$storage" in /*) ;; *) die "Use an absolute path for storage." ;; esac
-	ask port "Port to publish VaultDock on" "8080"
-	[[ "$port" =~ ^[0-9]+$ ]] || die "Port must be a number."
-	ask url "Public URL users will open (used in messages)" "http://$(hostname -f 2>/dev/null || hostname):$port"
-	printf '  HTTPS options:\n    1) none - I use my own HTTPS reverse proxy or only test on this machine\n    2) built-in Caddy with a Let'"'"'s Encrypt certificate (needs a domain and ports 80/443)\n    3) self-signed certificate (LAN; the desktop app asks you to verify its fingerprint)\n'
-	ask mode "Choose 1, 2 or 3" "1"
-	if [ "$(id -u)" = 0 ]; then uid=65532; gid=65532; else uid=$(id -u); gid=$(id -g); fi
-	token=$(random_token)
-	{
-		echo "# Generated by install.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ). Keep this file private."
-		echo "VAULTDOCK_ENV_FILE=$ENV_FILE"
-		echo "VAULTDOCK_STATE_PATH=$DIR/data/state"
-		echo "VAULTDOCK_STORAGE_PATH=$storage"
-		echo "VAULTDOCK_UID=$uid"
-		echo "VAULTDOCK_GID=$gid"
-		echo "VAULTDOCK_PORT=$port"
-		echo "VAULTDOCK_BIND=0.0.0.0"
-		echo "VAULTDOCK_PUBLIC_URL=$url"
-		echo "VAULTDOCK_SETUP_TOKEN=$token"
-		echo "VAULTDOCK_COOKIE_SECURE=auto"
-		echo "VAULTDOCK_LOG_FORMAT=json"
-		echo "VAULTDOCK_UPDATE_REPO=$REPO"
-		echo "VAULTDOCK_AUTO_UPDATE=off"
-	} >"$ENV_FILE"
-	chmod 600 "$ENV_FILE"
+	ask port "Port to publish VaultDock on" "${VAULTDOCK_PORT:-$DEFAULT_PORT}"
+	[[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || die "Port must be a number between 1 and 65535."
+	host=$(hostname -f 2>/dev/null || hostname)
+	printf '  How will people reach VaultDock?\n'
+	printf '    1) Cloudflare Tunnel or a reverse proxy on this server (HTTPS on your domain)\n'
+	printf '    2) Built-in Caddy with a Let'"'"'s Encrypt certificate (needs a domain and ports 80/443)\n'
+	printf '    3) Self-signed certificate on the local network (the desktop app pins it)\n'
+	printf '    4) Plain HTTP on the local network (testing only; the desktop app needs HTTPS)\n'
+	ask mode "Choose 1, 2, 3 or 4" "$(https_mode_default)"
 	case "$mode" in
+	1)
+		ask url "Public HTTPS address (for example https://app.example.com)" "${VAULTDOCK_PUBLIC_URL:-https://$host}"
+		case "$url" in https://*) ;; *) die "The public address must start with https://" ;; esac
+		url=${url%/}
+		# The tunnel or proxy runs on this host: listen on localhost only and
+		# trust forwarded headers from the host and Docker networks.
+		bind=127.0.0.1; proxies="127.0.0.1/32,::1/128,172.16.0.0/12"; secure=true
+		;;
 	2)
-		ask domain "Domain name pointing at this server" ""
+		ask domain "Domain name pointing at this server" "${VAULTDOCK_DOMAIN:-}"
 		[ -n "$domain" ] || die "A domain is required for Let's Encrypt."
-		set_env COMPOSE_PROFILES caddy
-		set_env VAULTDOCK_DOMAIN "$domain"
-		set_env VAULTDOCK_PUBLIC_URL "https://$domain"
-		set_env VAULTDOCK_TRUSTED_PROXIES "172.16.0.0/12,10.0.0.0/8,192.168.0.0/16"
-		set_env VAULTDOCK_BIND 127.0.0.1
+		url="https://$domain"; bind=127.0.0.1; profiles=caddy; secure=true
+		proxies="172.16.0.0/12,10.0.0.0/8,192.168.0.0/16"
 		;;
 	3)
-		set_env VAULTDOCK_TLS_SELF_SIGNED true
-		set_env VAULTDOCK_TLS_HOSTS "$(hostname -I 2>/dev/null | tr ' ' ',' | sed 's/,$//')"
-		set_env VAULTDOCK_PUBLIC_URL "https://$(hostname -I 2>/dev/null | awk '{print $1}'):$port"
+		tls_self=true
+		tls_hosts=$(hostname -I 2>/dev/null | tr ' ' ',' | sed 's/,*$//')
+		url="https://$(hostname -I 2>/dev/null | awk '{print $1}'):$port"
 		;;
+	4) url=${VAULTDOCK_PUBLIC_URL:-http://$host:$port} ;;
+	*) die "Choose 1, 2, 3 or 4." ;;
 	esac
+	if [ "$(id -u)" = 0 ]; then uid=65532; gid=65532; else uid=$(id -u); gid=$(id -g); fi
+	token=$(random_token)
+	mkdir -p -- "$APP"
+	cat >"$ENV_FILE" <<ENVFILE
+# VaultDock configuration, generated by install.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ).
+# Keep this file private: it contains the setup token. After editing it, apply
+# the change with "docker compose up -d" in this folder, or "./install.sh upgrade".
+
+# --- Paths --------------------------------------------------------------------
+# Database and generated certificates.
+VAULTDOCK_STATE_PATH=$DIR/data/state
+# Stored files. Put this on your large disk.
+VAULTDOCK_STORAGE_PATH=$storage
+# This file, as used by docker compose.
+VAULTDOCK_ENV_FILE=$ENV_FILE
+
+# --- Container user that owns the data directories ---------------------------
+VAULTDOCK_UID=$uid
+VAULTDOCK_GID=$gid
+
+# --- Network ------------------------------------------------------------------
+# Host address and port VaultDock is published on.
+VAULTDOCK_BIND=$bind
+VAULTDOCK_PORT=$port
+# Address people open in the browser and enter in the desktop app.
+VAULTDOCK_PUBLIC_URL=$url
+# Proxies whose X-Forwarded-For and X-Forwarded-Proto headers are trusted.
+VAULTDOCK_TRUSTED_PROXIES=$proxies
+
+# --- HTTPS --------------------------------------------------------------------
+# Built-in Caddy with Let's Encrypt: COMPOSE_PROFILES=caddy plus a domain.
+COMPOSE_PROFILES=$profiles
+VAULTDOCK_DOMAIN=$domain
+# Self-signed certificate served by VaultDock itself.
+VAULTDOCK_TLS_SELF_SIGNED=$tls_self
+VAULTDOCK_TLS_HOSTS=$tls_hosts
+# Your own certificate (paths inside the container, for example under /state).
+VAULTDOCK_TLS_CERT=
+VAULTDOCK_TLS_KEY=
+
+# --- Security -----------------------------------------------------------------
+# One-time token required to create the first administrator (generated).
+VAULTDOCK_SETUP_TOKEN=$token
+# Secure cookies: auto (when HTTPS is detected), true or false.
+VAULTDOCK_COOKIE_SECURE=$secure
+
+# --- Transfers ----------------------------------------------------------------
+VAULTDOCK_CHUNK_SIZE_MB=8
+VAULTDOCK_MAX_CONCURRENT_CHUNKS=64
+VAULTDOCK_UPLOAD_TTL_HOURS=48
+
+# --- Logging ------------------------------------------------------------------
+VAULTDOCK_LOG_LEVEL=info
+VAULTDOCK_LOG_FORMAT=json
+
+# --- Optional city database for device request locations (mount under /state)
+VAULTDOCK_GEOIP_DB=
+
+# --- Updates ------------------------------------------------------------------
+VAULTDOCK_UPDATE_CHECK=true
+VAULTDOCK_UPDATE_REPO=$REPO
+# Managed by "install.sh auto-update on|off".
+VAULTDOCK_AUTO_UPDATE=off
+# Managed by install.sh: the image and version currently installed.
+VAULTDOCK_IMAGE=
+VAULTDOCK_VERSION=
+ENVFILE
+	chmod 600 "$ENV_FILE"
 }
 
 do_install() {
@@ -324,7 +453,9 @@ do_install() {
 		*) die "Cancelled. Nothing was changed." ;;
 		esac
 	fi
-	fetch_source "$APP"
+	resolve_ref_if_remote
+	fetch_app "$APP.new"
+	rm -rf -- "$APP"; mv -- "$APP.new" "$APP"
 	write_env
 	prepare_dirs
 	build_image
@@ -335,21 +466,21 @@ do_install() {
 }
 
 print_summary() {
-	cat <<EOF
-
-${B}VaultDock is installed.${N}
-  Open:            $(env_get VAULTDOCK_PUBLIC_URL)
-  Setup token:     $(env_get VAULTDOCK_SETUP_TOKEN)   (needed once to create the administrator)
-  Install dir:     $DIR
-  Files stored in: $(env_get VAULTDOCK_STORAGE_PATH)
-  Database/state:  $(env_get VAULTDOCK_STATE_PATH)
-  Manage:          $DIR/app/install.sh   (install / upgrade / uninstall)
-  Logs:            docker logs -f vaultdock
-
-Next: open the URL, create the administrator with the setup token, then
-install the VaultDock desktop app on Windows and connect it to this server.
-For remote access put VaultDock behind HTTPS (see docs/deployment.md).
-EOF
+	local url bind port
+	url=$(env_get VAULTDOCK_PUBLIC_URL); bind=$(env_get VAULTDOCK_BIND); port=$(env_get VAULTDOCK_PORT)
+	printf '\n%sVaultDock is installed.%s\n' "$B" "$N"
+	printf '  Open:            %s\n' "$url"
+	printf '  Setup token:     %s   (needed once to create the administrator)\n' "$(env_get VAULTDOCK_SETUP_TOKEN)"
+	printf '  Listening on:    %s:%s\n' "$bind" "$port"
+	printf '  Configuration:   %s\n' "$ENV_FILE"
+	printf '  Files stored in: %s\n' "$(env_get VAULTDOCK_STORAGE_PATH)"
+	printf '  Database/state:  %s\n' "$(env_get VAULTDOCK_STATE_PATH)"
+	printf '  Manage:          %s   (upgrade, auto-update, status, uninstall)\n' "$APP/install.sh"
+	printf '  Logs:            docker logs -f vaultdock\n'
+	if [ "$bind" = 127.0.0.1 ] && [ -z "$(env_get COMPOSE_PROFILES)" ]; then
+		printf '\nPoint your Cloudflare Tunnel or reverse proxy for %s at http://127.0.0.1:%s\n' "$url" "$port"
+	fi
+	printf '\nNext: open the address, create the administrator with the setup token, then\ninstall the VaultDock desktop app on Windows and connect it to this server.\n'
 }
 
 # --- upgrade -------------------------------------------------------------------
@@ -357,11 +488,11 @@ EOF
 # (for example a build of the main branch) is always considered older.
 version_newer() {
 	local a=${1%%[-+]*} b=${2%%[-+]*} i x y
-	local -a A B
+	local -a va vb
 	[[ "$b" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || return 0
-	IFS=. read -r -a A <<<"$a"; IFS=. read -r -a B <<<"$b"
+	IFS=. read -r -a va <<<"$a"; IFS=. read -r -a vb <<<"$b"
 	for i in 0 1 2; do
-		x=${A[$i]:-0}; y=${B[$i]:-0}
+		x=${va[$i]:-0}; y=${vb[$i]:-0}
 		((10#$x > 10#$y)) && return 0
 		((10#$x < 10#$y)) && return 1
 	done
@@ -416,9 +547,9 @@ do_upgrade() {
 	local prev_image; prev_image=$(env_get VAULTDOCK_IMAGE); prev_image=${prev_image:-vaultdock:local}
 	local prev_version; prev_version=$(env_get VAULTDOCK_VERSION)
 	docker image inspect "$prev_image" >/dev/null 2>&1 && docker tag "$prev_image" vaultdock:rollback
-	fetch_source "$APP.new"
-	[ -n "$(env_get VAULTDOCK_ENV_FILE)" ] || set_env VAULTDOCK_ENV_FILE "$ENV_FILE"
+	fetch_app "$APP.new"
 	rm -rf -- "$APP.old"; mv -- "$APP" "$APP.old"; mv -- "$APP.new" "$APP"
+	set_env VAULTDOCK_ENV_FILE "$ENV_FILE"
 	if ! build_image; then
 		warn "Build failed; restoring the previous version."
 		rm -rf -- "$APP"; mv -- "$APP.old" "$APP"
@@ -541,7 +672,7 @@ EOF
 
 do_status() {
 	if installed; then
-		info "Installed in $DIR"
+		info "Installed in $DIR (version $(env_get VAULTDOCK_VERSION), configuration $ENV_FILE)"
 		compose ps || true
 	else
 		info "Not installed in $DIR"
@@ -568,6 +699,7 @@ menu() {
 
 main() {
 	local cmd=${1:-}
+	migrate_layout
 	for a in "$@"; do
 		case "$a" in
 		--yes) YES=1 ;;
@@ -581,7 +713,7 @@ main() {
 	status) do_status ;;
 	auto-update) do_auto_update "${2:-status}" ;;
 	""|--yes) menu ;;
-	-h|--help) sed -n '2,24p' "$0" ;;
+	-h|--help) sed -n '2,30p' "$0" ;;
 	*) die "Unknown command: $cmd (use install, upgrade, uninstall, status or auto-update)" ;;
 	esac
 }

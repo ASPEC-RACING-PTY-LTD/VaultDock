@@ -15,7 +15,7 @@ Self-hosted file storage and intelligent synchronisation. Run it on your own har
 curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/VaultDock/main/install.sh | bash
 ```
 
-The installer shows a menu: **1) Install / Replace, 2) Upgrade, 3) Uninstall, 4) Automatic updates**. It installs the latest release into `~/VaultDock` (or `/root/VaultDock` as root), asks where to store files (point it at your HDD), generates a setup token, pulls the prebuilt image (or builds it from source), starts the container, and waits until it is healthy.
+The installer shows a menu: **1) Install / Replace, 2) Upgrade, 3) Uninstall, 4) Automatic updates**. It installs the latest release into `~/VaultDock` (or `/root/VaultDock` as root): only the server's runtime files go into `~/VaultDock/app`, together with a complete, pre-filled `.env` (generated setup token included). It asks where to store files (point it at your HDD) and how the server is reached (Cloudflare Tunnel or reverse proxy, built-in Caddy, self-signed, or plain HTTP), pulls the prebuilt image (or builds it from a temporary copy of the source), starts the container on port 3000, and waits until it is healthy.
 
 Then open the printed URL, create the administrator with the setup token, and install the desktop app.
 
