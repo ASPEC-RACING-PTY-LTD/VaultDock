@@ -64,7 +64,7 @@ export function App() {
     <div className="flex h-screen overflow-hidden">
       <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white px-3 py-5 dark:border-slate-800 dark:bg-slate-950">
         <div className="mb-6 flex items-center gap-2.5 px-2">
-          <img src={logo} alt="" className="size-8 rounded-lg" />
+          <img src={logo} alt="" className="size-8 object-contain" />
           <div>
             <div className="text-base leading-tight font-semibold">VaultDock</div>
             <div className="text-[11px] text-slate-500">{boot.user ? `${boot.user} · ` : ''}desktop {boot.version}</div>

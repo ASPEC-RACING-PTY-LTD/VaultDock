@@ -86,7 +86,7 @@ export function ConnectScreen({ boot, revoked, onDone }: { boot: main.Bootstrap;
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.18),transparent_60%),radial-gradient(ellipse_at_bottom_right,rgba(14,165,233,0.14),transparent_55%)]" />
       <div className="relative w-full max-w-lg">
         <div className="mb-6 flex flex-col items-center text-center">
-          <img src={logo} alt="" className="mb-3 size-14 rounded-2xl shadow-lg" />
+          <img src={logo} alt="" className="mb-3 size-20 object-contain drop-shadow-lg" />
           <h1 className="text-2xl font-semibold tracking-tight">{revoked ? 'Reconnect this device' : 'Connect to VaultDock'}</h1>
           <p className="mt-1 text-sm text-slate-500">{revoked ? 'This device’s access was revoked or its credentials are no longer valid. Sign in again and approve it in the web interface.' : 'Sync the folders you choose to your own VaultDock server.'}</p>
         </div>

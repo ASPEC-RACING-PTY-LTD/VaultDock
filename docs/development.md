@@ -40,4 +40,4 @@ Phase 1 covers setup, registration, device rejection/approval, a 300 MiB upload 
 
 ## Regenerating icons
 
-`python scripts/make_icons.py` renders the app icon and tray icon without external tools.
+The master logo is `assets/brand/logo.png`. After changing it, run `python scripts/make_icons.py` (needs Pillow) to regenerate the desktop app, installer and tray icons and the web app favicon and logo.

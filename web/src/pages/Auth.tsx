@@ -10,7 +10,7 @@ function Shell({ title, subtitle, children }: { title: string; subtitle: ReactNo
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.18),transparent_60%),radial-gradient(ellipse_at_bottom_right,rgba(14,165,233,0.14),transparent_55%)]" />
       <div className="relative w-full max-w-md">
         <div className="mb-8 flex flex-col items-center text-center">
-          <img src="/favicon.svg" alt="" className="mb-4 size-14 drop-shadow-lg" />
+          <img src="/logo.png" alt="" className="mb-4 size-20 object-contain drop-shadow-lg" />
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">{title}</h1>
           <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
         </div>

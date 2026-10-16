@@ -22,7 +22,7 @@ const nav = [
 function Logo({ name }: { name: string }) {
   return (
     <Link to="/" className="flex items-center gap-2.5 px-2">
-      <img src="/favicon.svg" alt="" className="size-8" />
+      <img src="/logo.png" alt="" className="size-8 object-contain" />
       <span className="text-lg font-semibold tracking-tight text-slate-900 dark:text-white">{name}</span>
     </Link>
   )
